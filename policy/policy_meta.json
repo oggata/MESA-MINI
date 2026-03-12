@@ -1,0 +1,22 @@
+{
+  "input_size": 6,
+  "output_size": 5,
+  "actions": [
+    "up",
+    "down",
+    "left",
+    "right",
+    "stay"
+  ],
+  "obs_keys": [
+    "pos_x/GRID",
+    "pos_y/GRID",
+    "visited_ratio",
+    "meeting_rate",
+    "nearest_dx/GRID",
+    "nearest_dy/GRID"
+  ],
+  "grid_size": 10,
+  "n_agents": 6,
+  "cell_size": 1.0
+}
