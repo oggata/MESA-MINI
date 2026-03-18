@@ -111,10 +111,14 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;
     <div id="persona-load-list"></div>
   </div>
 
-  <div style="display:flex;gap:10px;">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
     <button class="load-btn" id="start-btn">Start Simulation</button>
+    <button class="load-btn" id="default-btn" style="background:rgba(0,210,160,0.12);border-color:#00d2a0;">▶ Start Default ONNX</button>
     <button class="skip-btn" id="skip-btn">Skip (Random Mode)</button>
   </div>
+  <p style="font-size:9px;color:var(--dim);margin-top:4px;">
+    Default ONNX: <code style="color:#00d2a0;">./data/persona_A.onnx</code> 〜 <code style="color:#00d2a0;">./data/persona_E.onnx</code>
+  </p>
 </div>
 
 <div id="c3d"></div>
@@ -275,6 +279,77 @@ document.getElementById('skip-btn').addEventListener('click', ()=>{
   initAll();
 });
 
+// ── Default ONNX: ./data/ から自動ロード ──
+document.getElementById('default-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('default-btn');
+  btn.textContent = '読み込み中...';
+  btn.disabled = true;
+
+  const statusEl = document.createElement('p');
+  statusEl.style.cssText = 'font-size:10px;color:#ffcc44;margin-top:6px;font-family:monospace;';
+  btn.parentElement.after(statusEl);
+
+  let anyLoaded = false;
+
+  for(const p of PERSONA_DEFS){
+    const onnxUrl = `./data/persona_${p.id}.onnx`;
+    const metaUrl = `./data/persona_${p.id}_meta.json`;
+    const st = document.getElementById(`status-${p.id}`);
+    statusEl.textContent = `Loading persona_${p.id}.onnx ...`;
+
+    // meta を先に読む
+    try{
+      const metaRes = await fetch(metaUrl);
+      if(metaRes.ok){
+        metaData[p.id] = await metaRes.json();
+        const dim = metaData[p.id].input_size;
+        if(dim) obsDims[p.id] = dim;
+        const idx = PERSONA_DEFS.findIndex(x=>x.id===p.id);
+        if(idx>=0 && metaData[p.id].persona_name)
+          PERSONA_DEFS[idx].name = metaData[p.id].persona_name;
+        if(idx>=0 && metaData[p.id].description)
+          PERSONA_DEFS[idx].desc = metaData[p.id].description;
+      }
+    } catch(e){ /* meta は任意 */ }
+
+    // ONNX を読む
+    try{
+      const onnxRes = await fetch(onnxUrl);
+      if(!onnxRes.ok) throw new Error(`HTTP ${onnxRes.status}`);
+      const buf = await onnxRes.arrayBuffer();
+      sessions[p.id] = await ort.InferenceSession.create(buf, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      });
+      // 推論テスト
+      const dim = obsDims[p.id] || 18;
+      const inputName = sessions[p.id].inputNames[0];
+      const testT = new ort.Tensor('float32', new Float32Array(dim), [1, dim]);
+      await sessions[p.id].run({ [inputName]: testT });
+
+      st.textContent = '✓ ONNX読込';
+      st.style.color = '#00d2a0';
+      anyLoaded = true;
+      console.log(`[${p.id}] Default ONNX loaded: ${onnxUrl}`);
+    } catch(e){
+      st.textContent = `⚠ ${e.message.slice(0,20)}`;
+      st.style.color = '#ffcc44';
+      console.warn(`[${p.id}] ${onnxUrl}: ${e.message}`);
+    }
+  }
+
+  statusEl.remove();
+  for(const pid of Object.keys(obsDims)){ OBS_DIM = obsDims[pid]; break; }
+  document.getElementById('overlay').style.display = 'none';
+
+  if(anyLoaded){
+    console.log('Default ONNX mode started. OBS_DIM =', OBS_DIM);
+  } else {
+    console.warn('No ONNX loaded from ./data/ — running in random mode.');
+  }
+  initAll();
+});
+
 // ============================================================
 // マップ生成
 // ============================================================
@@ -321,18 +396,29 @@ function randB(ex){
 }
 
 // ============================================================
-// レイキャスト
+// レイキャスト (DOOM式: 壁ヒットまたは最大距離)
 // ============================================================
 function raycast(x,y,th){
   return RAY_RAD.map(da=>{
-    const angle=th+da,dx=Math.cos(angle),dy=Math.sin(angle);
+    const angle=th+da;
+    const dx=Math.cos(angle);
+    const dy=Math.sin(angle);
+    let prevType=MAP[Math.floor(x)][Math.floor(y)];
     for(let d=RAY_STEP;d<RAY_MAX;d+=RAY_STEP){
-      const nx=x+dx*d,ny=y+dy*d;
-      const r=Math.floor(nx),c=Math.floor(ny);
-      if(r<0||r>=GRID||c<0||c>=GRID)return{type:OTHER,dist:d,norm:d/RAY_MAX};
-      if(MAP[r][c]!==ROAD)return{type:MAP[r][c],dist:d,norm:d/RAY_MAX};
+      const nx=x+dx*d, ny=y+dy*d;
+      const r=Math.floor(nx), c=Math.floor(ny);
+      // マップ外 → 壁としてヒット
+      if(r<0||r>=GRID||c<0||c>=GRID){
+        return{type:OTHER, dist:d, norm:d/RAY_MAX};
+      }
+      const ct=MAP[r][c];
+      // BUILDING または TREE に当たったらヒット
+      if(ct===BUILDING||ct===TREE){
+        return{type:ct, dist:d, norm:d/RAY_MAX};
+      }
     }
-    return{type:ROAD,dist:RAY_MAX,norm:1};
+    // 最大距離まで障害物なし → 遠景として道路色で描画
+    return{type:ROAD, dist:RAY_MAX, norm:1.0};
   });
 }
 
@@ -607,52 +693,137 @@ async function stepAll(){
 // ============================================================
 const fpCanvas=document.getElementById('fp-canvas');
 const fpCtx=fpCanvas.getContext('2d');
+
+// キャンバスのピクセルサイズを CSS サイズに合わせて初期化・更新
+function resizeFpCanvas(){
+  const rect=fpCanvas.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  const w=Math.max(rect.width,240)*dpr;
+  const h=Math.max(rect.height,150)*dpr;
+  if(fpCanvas.width!==w||fpCanvas.height!==h){
+    fpCanvas.width=w;
+    fpCanvas.height=h;
+  }
+}
 const CT_COLORS={
   [OTHER]:'#0c1e4a',[ROAD]:'#b0b4ac',[BUILDING]:'#c42020',[TREE]:'#236826'
 };
 
 function drawFP(){
-  if(!showFP)return;
+  if(!showFP) return;
   const a=agents[followIdx];
-  if(!a)return;
-  const rays=raycast(a.x,a.y,a.th);
-  const w=fpCanvas.width,h=fpCanvas.height;
-  fpCtx.fillStyle='#030507';fpCtx.fillRect(0,0,w,h);
-  const sky=fpCtx.createLinearGradient(0,0,0,h*.45);
-  sky.addColorStop(0,'#060c14');sky.addColorStop(1,'#0c1e2a');
-  fpCtx.fillStyle=sky;fpCtx.fillRect(0,0,w,h*.45);
-  const grd=fpCtx.createLinearGradient(0,h*.45,0,h);
-  grd.addColorStop(0,'#1a2820');grd.addColorStop(1,'#080e0c');
-  fpCtx.fillStyle=grd;fpCtx.fillRect(0,h*.45,w,h*.55);
-  const cw=w/rays.length;
-  rays.forEach((ray,i)=>{
-    const norm=1-ray.norm;
-    const colH=Math.min(norm*h*1.8,h);
-    const y0=(h-colH)*.5;
-    const base=parseInt(CT_COLORS[ray.type].slice(1),16);
-    const br=Math.floor(0.3+norm*.7);
-    const r=Math.min(255,((base>>16)&0xff)*br);
-    const g=Math.min(255,((base>>8)&0xff)*br);
-    const b=Math.min(255,(base&0xff)*br);
-    fpCtx.fillStyle=`rgb(${r},${g},${b})`;
-    fpCtx.fillRect(i*cw,y0,cw+1,colH);
-  });
-  // 照準
+  if(!a) return;
+
+  resizeFpCanvas();
+  const w=fpCanvas.width, h=fpCanvas.height;
+  if(w===0||h===0) return;
+
+  const rays=raycast(a.x, a.y, a.th);
+  const N=rays.length;
+  const cw=w/N;
+
+  // ── 背景: 空 (上半分) ──
+  const sky=fpCtx.createLinearGradient(0,0,0,h*0.5);
+  sky.addColorStop(0,'#080e18'); sky.addColorStop(1,'#121e2c');
+  fpCtx.fillStyle=sky; fpCtx.fillRect(0,0,w,h*0.5);
+
+  // ── 背景: 道路/地面 (下半分) ──
+  const gnd=fpCtx.createLinearGradient(0,h*0.5,0,h);
+  gnd.addColorStop(0,'#1a1e1a'); gnd.addColorStop(1,'#0a0e0a');
+  fpCtx.fillStyle=gnd; fpCtx.fillRect(0,h*0.5,w,h*0.5);
+
+  // ── DOOM式レイキャスト柱 ──
+  for(let i=0;i<N;i++){
+    const ray=rays[i];
+
+    // 道路(最大距離)は柱なし → 空/地面のみ見える
+    if(ray.type===ROAD) continue;
+
+    // 距離に反比例した柱の高さ (近いほど大きい)
+    // dist=0.15 → colH≈h, dist=6.0 → colH≈h*0.04
+    const dist=Math.max(ray.dist, 0.1);
+    const colH=Math.min((h * 1.5) / dist, h);
+    const y0=(h-colH)*0.5;
+    const x0=i*cw;
+
+    // 距離による明るさ (遠いほど暗い)
+    const bright=Math.max(0.15, 1.0 - ray.dist/RAY_MAX);
+
+    // セルタイプ別の基本色
+    let baseHex=CT_COLORS[ray.type]||'#888888';
+    const base=parseInt(baseHex.slice(1),16);
+    const rv=Math.min(255,Math.round(((base>>16)&0xff)*bright));
+    const gv=Math.min(255,Math.round(((base>>8) &0xff)*bright));
+    const bv=Math.min(255,Math.round(( base     &0xff)*bright));
+
+    fpCtx.fillStyle=`rgb(${rv},${gv},${bv})`;
+    fpCtx.fillRect(x0, y0, cw+1, colH);
+
+    // 上端に明るいハイライト (立体感)
+    fpCtx.fillStyle=`rgba(255,255,255,${bright*0.15})`;
+    fpCtx.fillRect(x0, y0, cw+1, Math.max(2, colH*0.04));
+  }
+
+  // ── ミニマップ風の足元セル表示 ──
+  const footR=Math.floor(a.x), footC=Math.floor(a.y);
+  if(footR>=0&&footR<GRID&&footC>=0&&footC<GRID){
+    const ft=MAP[footR][footC];
+    const ftNames={[ROAD]:'ROAD',[BUILDING]:'BLDG',[TREE]:'TREE',[OTHER]:'OUT'};
+    fpCtx.fillStyle='rgba(0,0,0,0.5)';
+    fpCtx.fillRect(4,4,52,16);
+    fpCtx.fillStyle=CT_COLORS[ft]||'#fff';
+    fpCtx.font=`bold ${Math.round(h*0.08)}px monospace`;
+    fpCtx.textAlign='left';
+    fpCtx.fillText(ftNames[ft]||'?', 6, 16);
+  }
+
+  // ── 照準 ──
   const col=a.def.hex;
-  fpCtx.strokeStyle=col+'99';fpCtx.lineWidth=1;
+  fpCtx.strokeStyle=col+'dd';
+  fpCtx.lineWidth=Math.max(1.5, w/320);
   fpCtx.beginPath();
-  fpCtx.moveTo(w*.5-8,h*.5);fpCtx.lineTo(w*.5+8,h*.5);
-  fpCtx.moveTo(w*.5,h*.5-8);fpCtx.lineTo(w*.5,h*.5+8);
+  fpCtx.moveTo(w*0.5-12,h*0.5); fpCtx.lineTo(w*0.5+12,h*0.5);
+  fpCtx.moveTo(w*0.5,h*0.5-12); fpCtx.lineTo(w*0.5,h*0.5+12);
   fpCtx.stroke();
-  // ゴール方向
-  const dx=a.gx-a.x,dy=a.gy-a.y;
-  const ga=Math.atan2(dy,dx)-a.th;
-  const gl=22;
-  fpCtx.strokeStyle=col;fpCtx.lineWidth=2;
+  // 照準中心の点
+  fpCtx.fillStyle=col;
   fpCtx.beginPath();
-  fpCtx.moveTo(w*.5,h*.5);
-  fpCtx.lineTo(w*.5+Math.sin(ga)*gl,h*.5-Math.cos(ga)*gl);
+  fpCtx.arc(w*0.5,h*0.5,2,0,Math.PI*2);
+  fpCtx.fill();
+
+  // ── ゴール方向コンパス ──
+  const dx2=a.gx-a.x, dy2=a.gy-a.y;
+  const worldAng=Math.atan2(dy2,dx2);
+  const relAng=worldAng-a.th;
+  const arLen=Math.min(w,h)*0.14;
+  const arX=w*0.5+Math.sin(relAng)*arLen;
+  const arY=h*0.5-Math.cos(relAng)*arLen;
+
+  // 矢印の線
+  fpCtx.strokeStyle=col;
+  fpCtx.lineWidth=2.5;
+  fpCtx.beginPath();
+  fpCtx.moveTo(w*0.5, h*0.5);
+  fpCtx.lineTo(arX, arY);
   fpCtx.stroke();
+
+  // ゴールラベル (外周に寄せる)
+  const lblX=w*0.5+Math.sin(relAng)*(arLen+10);
+  const lblY=h*0.5-Math.cos(relAng)*(arLen+10);
+  fpCtx.fillStyle=col;
+  fpCtx.font=`bold ${Math.round(h*0.075)}px monospace`;
+  fpCtx.textAlign='center';
+  fpCtx.textBaseline='middle';
+  fpCtx.fillText('▶GOAL', lblX, lblY);
+  fpCtx.textBaseline='alphabetic';
+
+  // ── ペルソナ名 (右上) ──
+  fpCtx.fillStyle='rgba(0,0,0,0.55)';
+  fpCtx.fillRect(w-90,4,86,18);
+  fpCtx.fillStyle=col;
+  fpCtx.font=`${Math.round(h*0.08)}px monospace`;
+  fpCtx.textAlign='right';
+  fpCtx.fillText(a.def.name, w-6, 17);
 }
 
 // ============================================================
@@ -676,14 +847,28 @@ function updateMeshes(dt){
 
 function updateCamera(dt){
   if(camMode===0){
-    mainCam.position.set(W*.5,-W*.15,W*1.25);
-    mainCam.lookAt(W*.5,W*.5,0);
-  }else{
-    camAngle+=dt*.06;
-    const rad=W*.9;
-    mainCam.position.set(W*.5+Math.cos(camAngle)*rad,
-                          W*.5+Math.sin(camAngle)*rad,W*.8);
-    mainCam.lookAt(W*.5,W*.5,0);
+    // 俯瞰: 固定位置
+    mainCam.position.set(W*.5, -W*.15, W*1.25);
+    mainCam.up.set(0,1,0);
+    mainCam.lookAt(W*.5, W*.5, 0);
+  } else {
+    // Orbit: 地面を常に下にして水平回転
+    // 仰角(elevation)を固定し、方位角(azimuth)だけ変化させる
+    camAngle += dt * 0.06;
+    const elevation = Math.PI / 6;   // 30度の仰角 (地面が常に下)
+    const radius    = W * 1.0;
+    const cx = W * 0.5;
+    const cy = W * 0.5;
+
+    // 水平面上の位置 + 一定の高さ
+    const px = cx + Math.cos(camAngle) * radius * Math.cos(elevation);
+    const py = cy + Math.sin(camAngle) * radius * Math.cos(elevation);
+    const pz = radius * Math.sin(elevation);
+
+    mainCam.position.set(px, py, pz);
+    // up ベクトルを常に世界のZ軸方向(上)に固定
+    mainCam.up.set(0, 0, 1);
+    mainCam.lookAt(cx, cy, 0);
   }
 }
 
@@ -691,9 +876,7 @@ function animate(t){
   requestAnimationFrame(animate);
   const dt=Math.min((t-lastT)/1000,.1);lastT=t;
   updateMeshes(dt);updateCamera(dt);
-  drawFP();
-  fpCanvas.width=fpCanvas.clientWidth*devicePixelRatio;
-  fpCanvas.height=fpCanvas.clientHeight*devicePixelRatio;
+  drawFP();       // リサイズは drawFP 内の resizeFpCanvas() で実行
   renderer.render(S,mainCam);
 }
 requestAnimationFrame(animate);
@@ -733,6 +916,10 @@ document.getElementById('b-fp').addEventListener('click',function(){
   this.textContent=showFP?'FP ON':'FP View';
   this.classList.toggle('on',showFP);
   document.getElementById('fp-wrap').style.display=showFP?'block':'none';
+  if(showFP){
+    // 表示直後にサイズを確定させてから描画
+    requestAnimationFrame(()=>{ resizeFpCanvas(); drawFP(); });
+  }
 });
 </script>
 </body>
