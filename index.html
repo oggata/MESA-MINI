@@ -25,18 +25,25 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--text);
 }
 .p-card{
   background:var(--panel);border:1px solid var(--border);
-  border-radius:6px;padding:8px 12px;min-width:140px;
+  border-radius:6px;padding:8px 12px;
+  width:148px;min-width:148px;max-width:148px;  /* 固定幅 */
+  box-sizing:border-box;overflow:hidden;
   backdrop-filter:blur(12px);cursor:pointer;transition:.15s;
 }
 .p-card:hover{border-color:var(--accent);}
 .p-card.active{box-shadow:0 0 12px rgba(0,210,160,.3);}
 .p-card.inactive{opacity:0.4;}
 .p-name{font-family:var(--mono);font-size:9px;font-weight:700;
-  letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;}
-.p-desc{font-size:9px;color:var(--dim);line-height:1.6;margin-bottom:5px;}
-.p-stats{display:flex;gap:8px;font-family:var(--mono);font-size:9px;}
-.p-stat{display:flex;flex-direction:column;align-items:center;gap:1px;}
-.p-stat-val{color:var(--accent);font-size:11px;}
+  letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.p-desc{font-size:9px;color:var(--dim);line-height:1.6;margin-bottom:5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.p-stats{display:flex;gap:4px;font-family:var(--mono);font-size:9px;}
+.p-stat{display:flex;flex-direction:column;align-items:center;gap:1px;
+  flex:1;min-width:0;}
+.p-stat-val{color:var(--accent);font-size:11px;
+  min-width:2.5em;text-align:center;  /* 数字が増えても幅変化なし */
+  display:block;}
 .p-stat-lbl{color:var(--dim);font-size:7px;}
 .p-dot{width:8px;height:8px;border-radius:50%;margin-bottom:3px;flex-shrink:0;}
 
@@ -134,6 +141,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;
   <button id="b-cam" class="on">俯瞰</button>
   <button id="b-trail" class="on">Trail</button>
   <button id="b-fp">FP View</button>
+  <button id="b-newmap">🎲 New Map</button>
 </div>
 
 <!-- 一人称ビュー -->
@@ -353,39 +361,132 @@ document.getElementById('default-btn').addEventListener('click', async () => {
 // ============================================================
 // マップ生成
 // ============================================================
-function makeMap(size,seed){
+// 有機的グリッドマップ生成
+//   ① 格子道路を敷く
+//   ② 道路の一部をランダム削除 (接続性をBFSで保証)
+//   ③ 削除した道路セグメントにTREE/OTHERを配置
+//   ④ ブロック内に建物・木を配置
+// ============================================================
+function makeMap(size, seed){
   let s=seed>>>0;
-  const rng=()=>{s=(s*1664525+1013904223)>>>0;return s/0xffffffff};
+  const rng=()=>{s=(s*1664525+1013904223)>>>0; return s/0xffffffff};
   const ri=n=>Math.floor(rng()*n);
   const pick=a=>a[ri(a.length)];
+
   const g=Array.from({length:size},()=>new Array(size).fill(OTHER));
-  const step=4,rows=[],cols=[];
-  for(let i=0;i<size;i+=step){rows.push(i);cols.push(i);}
-  rows.forEach(r=>{for(let c=0;c<size;c++)g[r][c]=ROAD;});
-  cols.forEach(c=>{for(let r=0;r<size;r++)g[r][c]=ROAD;});
+  const step=4;
+  const rows=[], cols=[];
+  for(let i=0;i<size;i+=step){rows.push(i); cols.push(i);}
+
+  // ① 格子道路を全部敷く
+  rows.forEach(r=>{for(let c=0;c<size;c++) g[r][c]=ROAD;});
+  cols.forEach(c=>{for(let r=0;r<size;r++) g[r][c]=ROAD;});
+
+  // ② ブロック内に建物・木を配置
   for(let ri2=0;ri2<rows.length-1;ri2++){
     for(let ci=0;ci<cols.length-1;ci++){
-      const r0=rows[ri2]+1,r1=rows[ri2+1],c0=cols[ci]+1,c1=cols[ci+1];
+      const r0=rows[ri2]+1, r1=rows[ri2+1];
+      const c0=cols[ci]+1,  c1=cols[ci+1];
       const cells=[];
-      for(let r=r0;r<r1;r++)for(let c=c0;c<c1;c++)cells.push([r,c]);
-      if(!cells.length)continue;
-      const b=pick(cells);g[b[0]][b[1]]=BUILDING;
+      for(let r=r0;r<r1;r++) for(let c=c0;c<c1;c++) cells.push([r,c]);
+      if(!cells.length) continue;
+      const b=pick(cells); g[b[0]][b[1]]=BUILDING;
       cells.forEach(([r,c])=>{
-        if(r===b[0]&&c===b[1])return;
+        if(r===b[0]&&c===b[1]) return;
         const v=rng();
-        if(v<.25)g[r][c]=TREE;else if(v<.45)g[r][c]=BUILDING;
+        if(v<.25) g[r][c]=TREE; else if(v<.45) g[r][c]=BUILDING;
       });
     }
   }
-  rows.forEach(r=>{for(let c=0;c<size;c++)g[r][c]=ROAD;});
-  cols.forEach(c=>{for(let r=0;r<size;r++)g[r][c]=ROAD;});
+  // 道路を最終確定
+  rows.forEach(r=>{for(let c=0;c<size;c++) g[r][c]=ROAD;});
+  cols.forEach(c=>{for(let r=0;r<size;r++) g[r][c]=ROAD;});
+
+  // ③ 道路区間の削除候補を作る
+  //    交差点(行・列の交点)は絶対に削除しない
+  //    交差点間の「区間セル」のみ候補にする
+  const isIntersection=(r,c)=>rows.includes(r)&&cols.includes(c);
+
+  // 削除候補: 道路の区間セル (交差点でないROADセル)
+  const candidates=[];
+  for(let r=0;r<size;r++){
+    for(let c=0;c<size;c++){
+      if(g[r][c]===ROAD && !isIntersection(r,c)){
+        candidates.push([r,c]);
+      }
+    }
+  }
+
+  // シャッフル (rngベース)
+  for(let i=candidates.length-1;i>0;i--){
+    const j=ri(i+1);
+    [candidates[i],candidates[j]]=[candidates[j],candidates[i]];
+  }
+
+  // 道路が全て連結しているか確認 (建物BFSではなく道路BFS)
+  // 道路ネットワークが1つに繋がっていれば全建物に到達可能
+  function roadConnected(grid){
+    // 道路セルの1つを起点にする
+    let sr=-1, sc=-1;
+    outer: for(let r=0;r<size;r++) for(let c=0;c<size;c++)
+      if(grid[r][c]===ROAD){ sr=r; sc=c; break outer; }
+    if(sr<0) return true;
+
+    // BFSで道路を全探索
+    const visited=new Set();
+    const queue=[[sr,sc]];
+    visited.add(sr*size+sc);
+    const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+    while(queue.length){
+      const [r,c]=queue.shift();
+      for(const [dr,dc] of dirs){
+        const nr=r+dr, nc=c+dc;
+        if(nr<0||nr>=size||nc<0||nc>=size) continue;
+        const key=nr*size+nc;
+        if(!visited.has(key) && grid[nr][nc]===ROAD){
+          visited.add(key); queue.push([nr,nc]);
+        }
+      }
+    }
+    // 全道路セルが1つの連結成分に含まれるか
+    for(let r=0;r<size;r++) for(let c=0;c<size;c++)
+      if(grid[r][c]===ROAD && !visited.has(r*size+c)) return false;
+    return true;
+  }
+
+  // ④ 削除の実施 (道路連結性を保ちながら)
+  //    削除率: 30〜55% をランダムに決定
+  const removeRatio = 0.30 + rng()*0.25;
+  const maxRemove = Math.floor(candidates.length * removeRatio);
+  let removed = 0;
+
+  for(const [r,c] of candidates){
+    if(removed >= maxRemove) break;
+
+    // 試しに削除
+    g[r][c] = OTHER;
+
+    // 道路連結チェック (繋がっていれば削除確定)
+    if(roadConnected(g)){
+      g[r][c] = rng()<0.4 ? TREE : OTHER;
+      removed++;
+    } else {
+      // 切断される → 復元
+      g[r][c] = ROAD;
+    }
+  }
+
   return g;
 }
 
-const MAP=makeMap(GRID,42);
-const BUILDINGS=[];
-for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++)
-  if(MAP[r][c]===BUILDING)BUILDINGS.push([r,c]);
+let MAP=makeMap(GRID,42);
+let BUILDINGS=[];
+function rebuildBuildings(){
+  BUILDINGS.length=0;
+  for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++)
+    if(MAP[r][c]===BUILDING)BUILDINGS.push([r,c]);
+}
+rebuildBuildings();
 
 function randB(ex){
   for(let i=0;i<500;i++){
@@ -467,26 +568,40 @@ const gnd=new THREE.Mesh(new THREE.PlaneGeometry(W,W),
   new THREE.MeshLambertMaterial({color:0x060a0f}));
 gnd.position.set(W/2,W/2,0);gnd.receiveShadow=true;S.add(gnd);
 
-for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
-  const t=MAP[r][c],cx=c*CELL+CELL*.5,cy=r*CELL+CELL*.5;
-  if(t===BUILDING){
-    const h=(0.9+((r*GRID+c)%7)*.3)*CELL;
-    const m=new THREE.Mesh(new THREE.BoxGeometry(CELL*.8,CELL*.8,h),MATS[BUILDING]);
-    m.position.set(cx,cy,h/2);m.castShadow=m.receiveShadow=true;S.add(m);
-  }else if(t===TREE){
-    const tr=new THREE.Mesh(new THREE.BoxGeometry(CELL*.15,CELL*.15,CELL*.4),
-      new THREE.MeshLambertMaterial({color:0x4a3020}));
-    tr.position.set(cx,cy,CELL*.2);S.add(tr);
-    const cn=new THREE.Mesh(new THREE.BoxGeometry(CELL*.55,CELL*.55,CELL*.45),MATS[TREE]);
-    cn.position.set(cx,cy,CELL*.58);cn.castShadow=true;S.add(cn);
-  }else if(t===ROAD){
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[ROAD]);
-    m.position.set(cx,cy,.008);m.receiveShadow=true;S.add(m);
-  }else{
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[OTHER]);
-    m.position.set(cx,cy,.005);S.add(m);
+// タイルを Group で管理 → 丸ごと入れ替え可能
+let tileGroup = new THREE.Group();
+S.add(tileGroup);
+
+function buildTiles(){
+  // 既存タイルを全削除
+  while(tileGroup.children.length){
+    const c=tileGroup.children[0];
+    tileGroup.remove(c);
+    c.geometry && c.geometry.dispose();
+  }
+  for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
+    const t=MAP[r][c],cx=c*CELL+CELL*.5,cy=r*CELL+CELL*.5;
+    if(t===BUILDING){
+      const h=(0.9+((r*GRID+c)%7)*.3)*CELL;
+      const m=new THREE.Mesh(new THREE.BoxGeometry(CELL*.8,CELL*.8,h),MATS[BUILDING]);
+      m.position.set(cx,cy,h/2);m.castShadow=m.receiveShadow=true;
+      tileGroup.add(m);
+    }else if(t===TREE){
+      const tr=new THREE.Mesh(new THREE.BoxGeometry(CELL*.15,CELL*.15,CELL*.4),
+        new THREE.MeshLambertMaterial({color:0x4a3020}));
+      tr.position.set(cx,cy,CELL*.2);tileGroup.add(tr);
+      const cn=new THREE.Mesh(new THREE.BoxGeometry(CELL*.55,CELL*.55,CELL*.45),MATS[TREE]);
+      cn.position.set(cx,cy,CELL*.58);cn.castShadow=true;tileGroup.add(cn);
+    }else if(t===ROAD){
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[ROAD]);
+      m.position.set(cx,cy,.008);m.receiveShadow=true;tileGroup.add(m);
+    }else{
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[OTHER]);
+      m.position.set(cx,cy,.005);tileGroup.add(m);
+    }
   }
 }
+buildTiles();
 
 // ============================================================
 // エージェント状態 & メッシュ
@@ -881,6 +996,11 @@ function animate(t){
 }
 requestAnimationFrame(animate);
 
+function addLog(msg,cls){
+  const b=document.getElementById('log-box')||document.body;
+  console.log(`[${cls||''}] ${msg}`);
+}
+
 setInterval(async()=>{
   for(let s=0;s<speedMul;s++) await stepAll();
 },TICK);
@@ -910,6 +1030,25 @@ document.getElementById('b-trail').addEventListener('click',function(){
   this.textContent=showTrail?'Trail':'No Trail';
   this.classList.toggle('on',showTrail);
   if(!showTrail)clearAllTrails();
+});
+
+document.getElementById('b-newmap').addEventListener('click',function(){
+  // ランダムシードで新しいマップを生成
+  const seed = Math.floor(Math.random()*100000);
+
+  // MAPを更新
+  MAP = makeMap(GRID, seed);
+  rebuildBuildings();
+
+  // 3Dタイルを再構築
+  buildTiles();
+
+  // エージェントをリセット (新マップの建物上に配置)
+  clearAllTrails();
+  initAll();
+
+  addLog(`New map (seed:${seed})`, 'hi');
+  console.log(`New map generated. seed=${seed} buildings=${BUILDINGS.length}`);
 });
 document.getElementById('b-fp').addEventListener('click',function(){
   showFP=!showFP;
