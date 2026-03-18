@@ -3,834 +3,737 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>City Human Sim — ONNX × Three.js</title>
+<title>MESA Persona City Sim</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@300;400&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#030507;--panel:rgba(4,8,14,0.92);--border:rgba(0,210,160,0.15);
+  --accent:#00d2a0;--warn:#ff4858;--gold:#ffcc44;
+  --mono:'Orbitron',monospace;--body:'Noto Sans JP',sans-serif;
+  --text:#a8c8c0;--dim:#2a4a44;
+}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);
+  font-family:var(--body);overflow:hidden}
+#c3d{position:fixed;inset:0}
+#c3d canvas{display:block;width:100%!important;height:100%!important}
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── ペルソナカード ── */
+#persona-bar{
+  position:fixed;top:12px;left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;z-index:50;pointer-events:auto;
+}
+.p-card{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:6px;padding:8px 12px;min-width:140px;
+  backdrop-filter:blur(12px);cursor:pointer;transition:.15s;
+}
+.p-card:hover{border-color:var(--accent);}
+.p-card.active{box-shadow:0 0 12px rgba(0,210,160,.3);}
+.p-card.inactive{opacity:0.4;}
+.p-name{font-family:var(--mono);font-size:9px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;}
+.p-desc{font-size:9px;color:var(--dim);line-height:1.6;margin-bottom:5px;}
+.p-stats{display:flex;gap:8px;font-family:var(--mono);font-size:9px;}
+.p-stat{display:flex;flex-direction:column;align-items:center;gap:1px;}
+.p-stat-val{color:var(--accent);font-size:11px;}
+.p-stat-lbl{color:var(--dim);font-size:7px;}
+.p-dot{width:8px;height:8px;border-radius:50%;margin-bottom:3px;flex-shrink:0;}
 
-  :root {
-    --bg:       #0a0c10;
-    --surface:  #12161e;
-    --border:   #1e2530;
-    --accent:   #00e5ff;
-    --accent2:  #ff4d6d;
-    --text:     #c8d8e8;
-    --dim:      #4a5a6a;
-    --mono:     'Share Tech Mono', monospace;
-    --sans:     'Zen Kaku Gothic New', sans-serif;
-  }
+/* ── コントロール ── */
+#ctrl{
+  position:fixed;bottom:14px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;z-index:50;
+}
+button{
+  background:var(--panel);border:1px solid var(--border);
+  color:var(--text);border-radius:4px;padding:6px 12px;
+  font-family:var(--mono);font-size:9px;cursor:pointer;
+  transition:.12s;letter-spacing:.06em;backdrop-filter:blur(8px);
+}
+button:hover{border-color:var(--accent);color:var(--accent);}
+button.on{border-color:var(--accent);color:var(--accent);
+  box-shadow:0 0 8px rgba(0,210,160,.25);}
 
-  html, body {
-    width: 100%; height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    overflow: hidden;
-  }
+/* ── FP PiP ── */
+#fp-wrap{
+  position:fixed;bottom:60px;right:14px;z-index:50;
+}
+#fp-label{font-family:var(--mono);font-size:9px;color:var(--accent);
+  margin-bottom:4px;text-align:right;}
+#fp-canvas{width:240px;height:150px;border:1px solid var(--border);
+  border-radius:4px;background:#000;}
 
-  #canvas-container {
-    position: fixed;
-    inset: 0;
-  }
+/* ── ロード画面 ── */
+#overlay{
+  position:fixed;inset:0;background:rgba(3,5,7,.96);
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:16px;z-index:200;
+}
+#overlay h1{font-family:var(--mono);font-size:18px;font-weight:900;
+  color:var(--accent);letter-spacing:.2em;text-transform:uppercase;}
+#overlay p{font-size:11px;color:var(--dim);text-align:center;
+  line-height:2;max-width:400px;}
+.load-section{background:rgba(0,0,0,.4);border:1px solid var(--border);
+  border-radius:6px;padding:16px 20px;min-width:380px;}
+.load-section h3{font-family:var(--mono);font-size:10px;color:var(--accent);
+  margin-bottom:10px;letter-spacing:.1em;}
+.persona-load-row{display:flex;align-items:center;gap:10px;
+  margin-bottom:8px;font-size:10px;}
+.persona-load-row .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.persona-load-row label{cursor:pointer;color:var(--text);}
+.persona-load-row .status{font-family:var(--mono);font-size:9px;
+  color:var(--dim);margin-left:auto;}
+.load-btn{background:transparent;border:1px solid var(--accent);
+  color:var(--accent);padding:8px 20px;border-radius:4px;
+  font-family:var(--mono);font-size:10px;cursor:pointer;transition:.15s;}
+.load-btn:hover{background:rgba(0,210,160,.1);}
+.skip-btn{background:transparent;border:1px solid var(--dim);
+  color:var(--dim);padding:6px 16px;border-radius:4px;
+  font-family:var(--mono);font-size:9px;cursor:pointer;}
 
-  #canvas-container canvas {
-    display: block;
-    width: 100% !important;
-    height: 100% !important;
-  }
-
-  /* HUD overlay */
-  #hud {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    display: grid;
-    grid-template-columns: 260px 1fr 260px;
-    grid-template-rows: auto 1fr auto;
-    gap: 12px;
-    padding: 16px;
-  }
-
-  .panel {
-    background: rgba(10,12,16,0.82);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px 16px;
-    backdrop-filter: blur(8px);
-    pointer-events: auto;
-  }
-
-  /* top-left: title */
-  #panel-title {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  #panel-title h1 {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--accent);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-  }
-  #panel-title p {
-    font-size: 11px;
-    color: var(--dim);
-    line-height: 1.6;
-  }
-
-  /* top-center: status bar */
-  #panel-status {
-    grid-column: 2;
-    grid-row: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 32px;
-  }
-  .stat {
-    text-align: center;
-  }
-  .stat-value {
-    font-family: var(--mono);
-    font-size: 22px;
-    color: var(--accent);
-    line-height: 1;
-  }
-  .stat-label {
-    font-size: 10px;
-    color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-top: 4px;
-  }
-  .stat-value.red { color: var(--accent2); }
-
-  /* top-right: controls */
-  #panel-controls {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  #panel-controls h2 {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 10px;
-  }
-
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-
-  button {
-    pointer-events: auto;
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    padding: 7px 14px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: all 0.15s;
-    text-transform: uppercase;
-  }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.08); }
-  button.danger:hover { border-color: var(--accent2); color: var(--accent2); }
-
-  /* bottom-left: agent log */
-  #panel-log {
-    grid-column: 1;
-    grid-row: 3;
-    max-height: 200px;
-    overflow: hidden;
-  }
-  #panel-log h2 {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 8px;
-  }
-  #log-entries {
-    font-family: var(--mono);
-    font-size: 11px;
-    line-height: 1.8;
-    color: var(--dim);
-  }
-  #log-entries .entry { animation: fadeIn 0.3s ease; }
-  #log-entries .highlight { color: var(--accent); }
-  #log-entries .meet { color: var(--accent2); }
-  @keyframes fadeIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; } }
-
-  /* bottom-right: mode indicator */
-  #panel-mode {
-    grid-column: 3;
-    grid-row: 3;
-  }
-  #mode-indicator {
-    font-family: var(--mono);
-    font-size: 12px;
-  }
-  .mode-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-  .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--dim);
-    flex-shrink: 0;
-  }
-  .dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 2s infinite; }
-  .dot.on.red { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-  /* ONNX load overlay */
-  #onnx-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(10,12,16,0.92);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    gap: 20px;
-  }
-  #onnx-overlay h2 {
-    font-family: var(--mono);
-    font-size: 14px;
-    color: var(--accent);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  #onnx-overlay p {
-    font-size: 12px;
-    color: var(--dim);
-    text-align: center;
-    line-height: 1.8;
-    max-width: 440px;
-  }
-  #onnx-overlay input[type=file] {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--text);
-    background: var(--surface);
-    border: 1px dashed var(--accent);
-    padding: 12px 20px;
-    border-radius: 6px;
-    cursor: pointer;
-    pointer-events: auto;
-  }
-  #skip-btn {
-    margin-top: 4px;
-    color: var(--dim);
-    border-color: var(--dim);
-  }
-  #skip-btn:hover { color: var(--text); border-color: var(--text); }
-
-  /* scanline effect */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.03) 2px,
-      rgba(0,0,0,0.03) 4px
-    );
-    pointer-events: none;
-    z-index: 200;
-  }
+/* scanline */
+body::after{content:'';position:fixed;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,
+    rgba(0,0,0,.02) 2px,rgba(0,0,0,.02) 4px);z-index:300;}
 </style>
 </head>
 <body>
 
-<!-- ONNX load dialog -->
-<div id="onnx-overlay">
-  <h2>⬡ City Human Sim</h2>
-  <p>
-    <strong style="color:var(--text)">genesis_train.py</strong> を実行して生成した<br>
-    <code style="color:var(--accent)">policy.onnx</code> を読み込んでください。<br><br>
-    ファイルがない場合は「ランダム行動で開始」を押してください。
-  </p>
-  <input type="file" id="onnx-file-input" accept=".onnx">
-  <button id="skip-btn">ランダム行動で開始（ONNXなし）</button>
-</div>
+<!-- ロード画面 -->
+<div id="overlay">
+  <h1>MESA PERSONA CITY</h1>
+  <p>ペルソナ別に学習されたONNXポリシーを読み込みます。<br>
+  Step2で生成した persona_X.onnx ファイルを選択してください。</p>
 
-<!-- Three.js canvas -->
-<div id="canvas-container"></div>
-
-<!-- HUD -->
-<div id="hud">
-  <div class="panel" id="panel-title">
-    <h1>⬡ City Human Sim</h1>
-    <p>Genesis → ONNX → Three.js<br>人間エージェント 都市シミュレーター</p>
+  <div class="load-section">
+    <h3>PERSONA ONNX FILES</h3>
+    <div id="persona-load-list"></div>
   </div>
 
-  <div class="panel" id="panel-status">
-    <div class="stat">
-      <div class="stat-value" id="stat-step">0</div>
-      <div class="stat-label">Step</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-visited">0</div>
-      <div class="stat-label">Visited Cells</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value red" id="stat-meetings">0</div>
-      <div class="stat-label">Meetings</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-reward">0.0</div>
-      <div class="stat-label">Reward</div>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-controls">
-    <h2>Controls</h2>
-    <div class="btn-row">
-      <button id="btn-pause">Pause</button>
-      <button id="btn-reset">Reset</button>
-      <button id="btn-speed">Speed ×1</button>
-      <button id="btn-camera">Camera</button>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-log">
-    <h2>Event Log</h2>
-    <div id="log-entries"></div>
-  </div>
-
-  <div class="panel" id="panel-mode">
-    <div id="mode-indicator">
-      <div class="mode-row">
-        <div class="dot on" id="dot-sim"></div>
-        <span id="label-mode">Random Mode</span>
-      </div>
-      <div class="mode-row">
-        <div class="dot" id="dot-onnx"></div>
-        <span id="label-onnx">ONNX: Not loaded</span>
-      </div>
-      <div class="mode-row">
-        <div class="dot on" id="dot-three"></div>
-        <span>Three.js: Active</span>
-      </div>
-    </div>
+  <div style="display:flex;gap:10px;">
+    <button class="load-btn" id="start-btn">Start Simulation</button>
+    <button class="skip-btn" id="skip-btn">Skip (Random Mode)</button>
   </div>
 </div>
 
-<!-- Scripts -->
+<div id="c3d"></div>
+
+<!-- ペルソナカード -->
+<div id="persona-bar"></div>
+
+<!-- コントロール -->
+<div id="ctrl">
+  <button id="b-pause">Pause</button>
+  <button id="b-reset">Reset</button>
+  <button id="b-speed">×1</button>
+  <button id="b-cam" class="on">俯瞰</button>
+  <button id="b-trail" class="on">Trail</button>
+  <button id="b-fp">FP View</button>
+</div>
+
+<!-- 一人称ビュー -->
+<div id="fp-wrap" style="display:none">
+  <div id="fp-label">FOLLOWING: <span id="fp-name">-</span></div>
+  <canvas id="fp-canvas"></canvas>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 <script>
 // ============================================================
-// Config
+// ペルソナ定義 (ONNX未読み込み時のデフォルト)
 // ============================================================
-const GRID = 10;
-const CELL = 3.0;          // Three.js units per cell
-const N_AGENTS = 6;
-const MAX_STEPS = 300;
-const TICK_MS = 120;       // ms per step
-
-// Building layout (matches Genesis script)
-const BUILDING_DEFS = [
-  {x:1,y:1,h:1.2},{x:1,y:3,h:0.9},{x:3,y:1,h:1.5},{x:3,y:7,h:1.0},
-  {x:5,y:3,h:1.8},{x:5,y:7,h:0.7},{x:7,y:1,h:1.3},{x:7,y:5,h:1.6},
-  {x:8,y:8,h:0.8},{x:2,y:6,h:1.1},{x:6,y:2,h:2.0},{x:4,y:5,h:1.4},
+const PERSONA_DEFS = [
+  { id:'A', name:'探索者タロウ',   color:0xff3355, hex:'#ff3355',
+    desc:'新しい場所を積極的に探索' },
+  { id:'B', name:'インドア花子',   color:0x00ccff, hex:'#00ccff',
+    desc:'最短経路で目的地へ' },
+  { id:'C', name:'社交家ケンジ',   color:0x33ff88, hex:'#33ff88',
+    desc:'他者の近くに集まる' },
+  { id:'D', name:'ビジネスマン誠', color:0xffee00, hex:'#ffee00',
+    desc:'効率重視で直進' },
+  { id:'E', name:'観光客サラ',     color:0xff7700, hex:'#ff7700',
+    desc:'建物を巡って観光' },
 ];
 
-const AGENT_COLORS = [0xff3355, 0x00ccff, 0x33ff88, 0xffee00, 0xff7700, 0xcc44ff];
-const AGENT_NAMES  = ["ALPHA","BETA","GAMMA","DELTA","EPSILON","ZETA"];
+// ============================================================
+// 定数
+// ============================================================
+const GRID=30,CELL=2.0,TICK=80;
+const OTHER=0,ROAD=1,BUILDING=2,TREE=3;
+const PASSABLE=new Set([ROAD,BUILDING]);
+const MOVE=0.25, ROT=Math.PI/9;
+const RAY_DEG=[-60,-30,0,30,60];
+const RAY_RAD=RAY_DEG.map(d=>d*Math.PI/180);
+const RAY_MAX=6.0, RAY_STEP=0.15;
+let OBS_DIM=18;
+const W=GRID*CELL;
 
 // ============================================================
-// State
+// ロード画面セットアップ
 // ============================================================
-let onnxSession = null;
-let paused = false;
-let speed = 1;
-let cameraMode = 0; // 0=overhead, 1=follow, 2=orbit
+const sessions = {};  // persona_id → ort.InferenceSession
+const metaData = {};  // persona_id → meta JSON
+const obsDims  = {};  // persona_id → input_size
 
-let positions   = [];   // [N_AGENTS][2] float
-let visited     = [];   // Set per agent
-let meetings    = [];   // count per agent
-let totalReward = 0;
-let stepCount   = 0;
-let logCount    = 0;
-
-// ============================================================
-// Three.js Setup
-// ============================================================
-const container = document.getElementById('canvas-container');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
-container.appendChild(renderer.domElement);
-
-const scene3 = new THREE.Scene();
-scene3.background = new THREE.Color(0x080b10);
-scene3.fog = new THREE.FogExp2(0x080b10, 0.018);
-
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
-camera.position.set(GRID*CELL*0.5, -GRID*CELL*0.6, GRID*CELL*0.9);
-camera.lookAt(GRID*CELL*0.5, GRID*CELL*0.5, 0);
-
-// Resize
-function onResize() {
-  const w = container.clientWidth, h = container.clientHeight;
-  renderer.setSize(w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener('resize', onResize);
-onResize();
-
-// Lights
-const ambientLight = new THREE.AmbientLight(0x1a2a3a, 1.5);
-scene3.add(ambientLight);
-
-const sunLight = new THREE.DirectionalLight(0xffeedd, 2.5);
-sunLight.position.set(20, 10, 30);
-sunLight.castShadow = true;
-sunLight.shadow.mapSize.set(2048, 2048);
-sunLight.shadow.camera.near = 0.5;
-sunLight.shadow.camera.far = 200;
-sunLight.shadow.camera.left = -60;
-sunLight.shadow.camera.right = 60;
-sunLight.shadow.camera.top = 60;
-sunLight.shadow.camera.bottom = -60;
-scene3.add(sunLight);
-
-// Point lights for ambiance
-const colors3d = [0x00e5ff, 0xff4d6d, 0x44ff88];
-colors3d.forEach((c, i) => {
-  const pl = new THREE.PointLight(c, 2, 20);
-  pl.position.set(
-    (i * 4 + 1) * CELL,
-    (i * 3 + 2) * CELL,
-    4
-  );
-  scene3.add(pl);
-});
-
-// ============================================================
-// Build City
-// ============================================================
-const worldW = GRID * CELL;
-
-// Ground (roads)
-const groundGeo = new THREE.PlaneGeometry(worldW, worldW);
-const groundMat = new THREE.MeshLambertMaterial({ color: 0x141820 });
-const ground = new THREE.Mesh(groundGeo, groundMat);
-ground.position.set(worldW/2, worldW/2, 0);
-ground.receiveShadow = true;
-scene3.add(ground);
-
-// Road grid lines
-const lineMat = new THREE.LineBasicMaterial({ color: 0x2a3545, linewidth: 1 });
-for (let i = 0; i <= GRID; i++) {
-  const pts1 = [
-    new THREE.Vector3(i*CELL, 0, 0.02),
-    new THREE.Vector3(i*CELL, worldW, 0.02)
-  ];
-  const pts2 = [
-    new THREE.Vector3(0, i*CELL, 0.02),
-    new THREE.Vector3(worldW, i*CELL, 0.02)
-  ];
-  scene3.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts1), lineMat));
-  scene3.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts2), lineMat));
+function showError(msg) {
+  let el = document.getElementById('error-log');
+  if(!el){ el=document.createElement('div'); el.id='error-log';
+    Object.assign(el.style,{position:'fixed',bottom:'50px',left:'50%',
+    transform:'translateX(-50%)',background:'rgba(255,72,88,.9)',
+    color:'#fff',padding:'8px 16px',borderRadius:'4px',
+    fontFamily:'monospace',fontSize:'11px',zIndex:'999',maxWidth:'80vw',
+    wordBreak:'break-all'}); document.body.appendChild(el); }
+  el.textContent = msg; el.style.display='block';
+  setTimeout(()=>{ el.style.display='none'; }, 8000);
+  console.error(msg);
 }
 
-// Buildings
-const buildingMeshes = [];
-const buildingColors3d = [
-  0x7a6a5a,0x5a6a7a,0x6a7a5a,0x8a5a4a,0x4a5a8a,
-  0x6a5a8a,0x8a8a4a,0x4a8a8a,0x8a4a6a,0x5a8a5a,0x7a7a7a,0x7a5a6a
-];
-BUILDING_DEFS.forEach((b, i) => {
-  const geo = new THREE.BoxGeometry(CELL*0.75, CELL*0.75, b.h * CELL * 0.8);
-  const mat = new THREE.MeshLambertMaterial({
-    color: buildingColors3d[i % buildingColors3d.length]
+const loadList = document.getElementById('persona-load-list');
+PERSONA_DEFS.forEach(p => {
+  const row = document.createElement('div');
+  row.className = 'persona-load-row';
+  row.innerHTML = `
+    <div class="dot" style="background:${p.hex}"></div>
+    <label>[${p.id}] ${p.name}</label>
+    <input type="file" id="file-${p.id}" accept=".onnx,.json" multiple
+           style="display:none">
+    <button class="load-btn" style="padding:4px 10px;font-size:9px"
+            onclick="document.getElementById('file-${p.id}').click()">
+      Select</button>
+    <span class="status" id="status-${p.id}">未読み込み</span>
+  `;
+  loadList.appendChild(row);
+
+  document.addEventListener('change', async e => {
+    if(e.target.id !== `file-${p.id}`) return;
+    const files = Array.from(e.target.files);
+    const onnxFile = files.find(f=>f.name.endsWith('.onnx'));
+    const metaFile = files.find(f=>f.name.endsWith('.json'));
+    const st = document.getElementById(`status-${p.id}`);
+
+    // JSON を先に読んで OBS_DIM を確定
+    if(metaFile) {
+      try {
+        const txt = await metaFile.text();
+        metaData[p.id] = JSON.parse(txt);
+        const dim = metaData[p.id].input_size;
+        if(dim) obsDims[p.id] = dim;
+        const idx = PERSONA_DEFS.findIndex(x=>x.id===p.id);
+        if(idx>=0 && metaData[p.id].persona_name)
+          PERSONA_DEFS[idx].name = metaData[p.id].persona_name;
+        if(idx>=0 && metaData[p.id].description)
+          PERSONA_DEFS[idx].desc = metaData[p.id].description;
+        st.textContent = metaOnly ? '✓ META読込' : '読込中...';
+        st.style.color = '#ffcc44';
+      } catch(err) {
+        showError(`[${p.id}] JSON読み込みエラー: ${err.message}`);
+        st.textContent = '❌ JSON失敗'; st.style.color='#ff4858'; return;
+      }
+    }
+
+    const metaOnly = !onnxFile;
+
+    if(onnxFile) {
+      try {
+        st.textContent = '読込中...'; st.style.color = '#ffcc44';
+        const buf = await onnxFile.arrayBuffer();
+        // wasmバックエンドを明示指定
+        sessions[p.id] = await ort.InferenceSession.create(buf, {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+        });
+        // 動作テスト
+        const dim = obsDims[p.id] || 18;
+        const inputName = sessions[p.id].inputNames[0];
+        const testT = new ort.Tensor('float32', new Float32Array(dim), [1, dim]);
+        const testOut = await sessions[p.id].run({ [inputName]: testT });
+        const logits = Array.from(testOut[sessions[p.id].outputNames[0]].data);
+        console.log(`[${p.id}] OK input="${inputName}" logits=${logits.map(v=>v.toFixed(2))}`);
+        st.textContent = '✓ ONNX+推論OK'; st.style.color = '#00d2a0';
+      } catch(err) {
+        showError(`[${p.id}] ONNXエラー: ${err.message}`);
+        st.textContent = '❌ ONNX失敗'; st.style.color='#ff4858';
+        sessions[p.id] = null;
+      }
+    } else if(metaFile) {
+      st.textContent = '✓ META読込'; st.style.color = '#ffcc44';
+    }
   });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(
-    (b.x + 0.5) * CELL,
-    (b.y + 0.5) * CELL,
-    (b.h * CELL * 0.8) / 2
-  );
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene3.add(mesh);
-  buildingMeshes.push(mesh);
-
-  // Rooftop glow
-  if (Math.random() > 0.4) {
-    const glowLight = new THREE.PointLight(
-      buildingColors3d[i % buildingColors3d.length],
-      0.8, 6
-    );
-    glowLight.position.copy(mesh.position);
-    glowLight.position.z += (b.h * CELL * 0.8) / 2 + 0.5;
-    scene3.add(glowLight);
-  }
 });
 
-// Visited cell markers
-const visitedMarkers = [];
-for (let row = 0; row < GRID; row++) {
-  visitedMarkers.push([]);
-  for (let col = 0; col < GRID; col++) {
-    const geo = new THREE.PlaneGeometry(CELL*0.9, CELL*0.9);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((col+0.5)*CELL, (row+0.5)*CELL, 0.03);
-    scene3.add(mesh);
-    visitedMarkers[row].push(mesh);
-  }
-}
-
-// Agent meshes
-const agentMeshes = [];
-const agentLabels = [];  // trail particles
-AGENT_COLORS.forEach((color, i) => {
-  // Body
-  const geo = new THREE.BoxGeometry(CELL*0.28, CELL*0.28, CELL*0.45);
-  const mat = new THREE.MeshLambertMaterial({ color });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.position.set(0, 0, CELL*0.45/2 + 0.02);
-  scene3.add(mesh);
-  agentMeshes.push(mesh);
-
-  // Head
-  const hGeo = new THREE.BoxGeometry(CELL*0.22, CELL*0.22, CELL*0.22);
-  const hMat = new THREE.MeshLambertMaterial({ color: 0xffd9aa });
-  const hMesh = new THREE.Mesh(hGeo, hMat);
-  hMesh.position.set(0, 0, CELL*0.45 + CELL*0.11 + 0.02);
-  mesh.add(hMesh);
-
-  // Glow (main agent only)
-  if (i === 0) {
-    const glowGeo = new THREE.SphereGeometry(CELL*0.5, 8, 8);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff, transparent: true, opacity: 0.06, depthWrite: false,
-    });
-    const glow = new THREE.Mesh(glowGeo, glowMat);
-    glow.position.set(0, 0, CELL*0.3);
-    mesh.add(glow);
-  }
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display='none';
+  // metaから OBS_DIM を確定
+  for(const pid of Object.keys(obsDims)){ OBS_DIM = obsDims[pid]; break; }
+  console.log('OBS_DIM =', OBS_DIM);
+  initAll();
+});
+document.getElementById('skip-btn').addEventListener('click', ()=>{
+  document.getElementById('overlay').style.display='none';
+  initAll();
 });
 
 // ============================================================
-// Simulation Logic
+// マップ生成
 // ============================================================
-const MOVES = [[0,1],[0,-1],[-1,0],[1,0],[0,0]];
-
-function initSim() {
-  positions = Array.from({length: N_AGENTS}, () =>
-    [Math.floor(Math.random()*GRID), Math.floor(Math.random()*GRID)]
-  );
-  visited   = Array.from({length: N_AGENTS}, () => new Set());
-  meetings  = new Array(N_AGENTS).fill(0);
-  totalReward = 0;
-  stepCount = 0;
-  // Clear visited markers
-  for (let r=0; r<GRID; r++) {
-    for (let c=0; c<GRID; c++) {
-      visitedMarkers[r][c].material.opacity = 0;
+function makeMap(size,seed){
+  let s=seed>>>0;
+  const rng=()=>{s=(s*1664525+1013904223)>>>0;return s/0xffffffff};
+  const ri=n=>Math.floor(rng()*n);
+  const pick=a=>a[ri(a.length)];
+  const g=Array.from({length:size},()=>new Array(size).fill(OTHER));
+  const step=4,rows=[],cols=[];
+  for(let i=0;i<size;i+=step){rows.push(i);cols.push(i);}
+  rows.forEach(r=>{for(let c=0;c<size;c++)g[r][c]=ROAD;});
+  cols.forEach(c=>{for(let r=0;r<size;r++)g[r][c]=ROAD;});
+  for(let ri2=0;ri2<rows.length-1;ri2++){
+    for(let ci=0;ci<cols.length-1;ci++){
+      const r0=rows[ri2]+1,r1=rows[ri2+1],c0=cols[ci]+1,c1=cols[ci+1];
+      const cells=[];
+      for(let r=r0;r<r1;r++)for(let c=c0;c<c1;c++)cells.push([r,c]);
+      if(!cells.length)continue;
+      const b=pick(cells);g[b[0]][b[1]]=BUILDING;
+      cells.forEach(([r,c])=>{
+        if(r===b[0]&&c===b[1])return;
+        const v=rng();
+        if(v<.25)g[r][c]=TREE;else if(v<.45)g[r][c]=BUILDING;
+      });
     }
   }
-  addLog("Simulation reset", "highlight");
+  rows.forEach(r=>{for(let c=0;c<size;c++)g[r][c]=ROAD;});
+  cols.forEach(c=>{for(let r=0;r<size;r++)g[r][c]=ROAD;});
+  return g;
 }
 
-function getObs(agentId) {
-  const pos = positions[agentId];
-  const others = positions.filter((_, i) => i !== agentId);
-  const diffs = others.map(o => [o[0]-pos[0], o[1]-pos[1]]);
-  const dists = diffs.map(d => Math.sqrt(d[0]*d[0]+d[1]*d[1]));
-  const minIdx = dists.indexOf(Math.min(...dists));
-  const nearest = diffs[minIdx];
+const MAP=makeMap(GRID,42);
+const BUILDINGS=[];
+for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++)
+  if(MAP[r][c]===BUILDING)BUILDINGS.push([r,c]);
+
+function randB(ex){
+  for(let i=0;i<500;i++){
+    const b=BUILDINGS[Math.floor(Math.random()*BUILDINGS.length)];
+    if(!ex||Math.abs(b[0]-ex[0])>1||Math.abs(b[1]-ex[1])>1)return[...b];
+  }
+  return[...BUILDINGS[0]];
+}
+
+// ============================================================
+// レイキャスト
+// ============================================================
+function raycast(x,y,th){
+  return RAY_RAD.map(da=>{
+    const angle=th+da,dx=Math.cos(angle),dy=Math.sin(angle);
+    for(let d=RAY_STEP;d<RAY_MAX;d+=RAY_STEP){
+      const nx=x+dx*d,ny=y+dy*d;
+      const r=Math.floor(nx),c=Math.floor(ny);
+      if(r<0||r>=GRID||c<0||c>=GRID)return{type:OTHER,dist:d,norm:d/RAY_MAX};
+      if(MAP[r][c]!==ROAD)return{type:MAP[r][c],dist:d,norm:d/RAY_MAX};
+    }
+    return{type:ROAD,dist:RAY_MAX,norm:1};
+  });
+}
+
+// ============================================================
+// Three.js セットアップ
+// ============================================================
+const cont=document.getElementById('c3d');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=0.9;
+cont.appendChild(renderer.domElement);
+
+const S=new THREE.Scene();
+S.background=new THREE.Color(0x020406);
+S.fog=new THREE.FogExp2(0x020406,0.0038);
+
+const mainCam=new THREE.PerspectiveCamera(52,1,0.1,1200);
+mainCam.position.set(W*.5,-W*.15,W*1.25);
+mainCam.lookAt(W*.5,W*.5,0);
+
+(()=>{const w=cont.clientWidth,h=cont.clientHeight;
+  renderer.setSize(w,h);mainCam.aspect=w/h;mainCam.updateProjectionMatrix();})();
+window.addEventListener('resize',()=>{
+  const w=cont.clientWidth,h=cont.clientHeight;
+  renderer.setSize(w,h);mainCam.aspect=w/h;mainCam.updateProjectionMatrix();});
+
+S.add(new THREE.AmbientLight(0x0c1a20,2.5));
+const sun=new THREE.DirectionalLight(0xffe8cc,1.6);
+sun.position.set(W*.4,-W*.3,W*.8);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=sun.shadow.camera.bottom=-W*.8;
+sun.shadow.camera.right=sun.shadow.camera.top=W*.8;
+sun.shadow.camera.far=1500;S.add(sun);
+
+// タイル
+const MATS={
+  [OTHER]:new THREE.MeshLambertMaterial({color:0x0c1e4a}),
+  [ROAD]: new THREE.MeshLambertMaterial({color:0xb0b4ac}),
+  [BUILDING]:new THREE.MeshLambertMaterial({color:0xc42020}),
+  [TREE]: new THREE.MeshLambertMaterial({color:0x236826}),
+};
+const gnd=new THREE.Mesh(new THREE.PlaneGeometry(W,W),
+  new THREE.MeshLambertMaterial({color:0x060a0f}));
+gnd.position.set(W/2,W/2,0);gnd.receiveShadow=true;S.add(gnd);
+
+for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
+  const t=MAP[r][c],cx=c*CELL+CELL*.5,cy=r*CELL+CELL*.5;
+  if(t===BUILDING){
+    const h=(0.9+((r*GRID+c)%7)*.3)*CELL;
+    const m=new THREE.Mesh(new THREE.BoxGeometry(CELL*.8,CELL*.8,h),MATS[BUILDING]);
+    m.position.set(cx,cy,h/2);m.castShadow=m.receiveShadow=true;S.add(m);
+  }else if(t===TREE){
+    const tr=new THREE.Mesh(new THREE.BoxGeometry(CELL*.15,CELL*.15,CELL*.4),
+      new THREE.MeshLambertMaterial({color:0x4a3020}));
+    tr.position.set(cx,cy,CELL*.2);S.add(tr);
+    const cn=new THREE.Mesh(new THREE.BoxGeometry(CELL*.55,CELL*.55,CELL*.45),MATS[TREE]);
+    cn.position.set(cx,cy,CELL*.58);cn.castShadow=true;S.add(cn);
+  }else if(t===ROAD){
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[ROAD]);
+    m.position.set(cx,cy,.008);m.receiveShadow=true;S.add(m);
+  }else{
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(CELL*.97,CELL*.97),MATS[OTHER]);
+    m.position.set(cx,cy,.005);S.add(m);
+  }
+}
+
+// ============================================================
+// エージェント状態 & メッシュ
+// ============================================================
+let agents=[];       // {x,y,th,gx,gy,trips,viols,steps,def,session,trail[]}
+let agentMeshes=[];
+let showTrail=true;
+let followIdx=0;     // FP視点で追うエージェントのインデックス
+let paused=false,speedMul=1,camMode=0,showFP=false;
+
+function createAgentMesh(color){
+  const body=new THREE.Mesh(
+    new THREE.BoxGeometry(CELL*.3,CELL*.3,CELL*.52),
+    new THREE.MeshLambertMaterial({color}));
+  body.castShadow=true;S.add(body);
+  const head=new THREE.Mesh(
+    new THREE.BoxGeometry(CELL*.22,CELL*.22,CELL*.22),
+    new THREE.MeshLambertMaterial({color:0xffd9aa}));
+  head.position.set(0,0,CELL*.4);body.add(head);
+  const nose=new THREE.Mesh(
+    new THREE.BoxGeometry(CELL*.08,CELL*.08,CELL*.12),
+    new THREE.MeshLambertMaterial({color:0xffffff}));
+  nose.position.set(0,CELL*.18,CELL*.12);body.add(nose);
+  // 名前ラベル (点光源で識別)
+  const pl=new THREE.PointLight(color,1.2,CELL*3);
+  pl.position.set(0,0,CELL*.8);body.add(pl);
+  return body;
+}
+
+function initAll(){
+  // 既存エージェントを削除
+  agents.forEach(a=>{
+    if(a.mesh)S.remove(a.mesh);
+    a.trail.forEach(m=>S.remove(m));
+  });
+  agents=[]; agentMeshes=[];
+
+  // ペルソナカードのUI構築
+  const bar=document.getElementById('persona-bar');
+  bar.innerHTML='';
+
+  PERSONA_DEFS.forEach((def,i)=>{
+    const b=randB(null);
+    const g=randB(b);
+    const session=sessions[def.id]||null;
+
+    const agent={
+      x:b[0]+0.5,y:b[1]+0.5,th:Math.random()*Math.PI*2,
+      gx:g[0]+0.5,gy:g[1]+0.5,
+      trips:0,viols:0,steps:0,
+      def,session,
+      trail:[],active:true,
+      visited:new Set(),
+      explored:0,
+    };
+    agents.push(agent);
+
+    const mesh=createAgentMesh(def.color);
+    mesh.position.set(agent.y*CELL+CELL*.5,agent.x*CELL+CELL*.5,CELL*.26);
+    agentMeshes.push(mesh);
+
+    // ペルソナカード
+    const card=document.createElement('div');
+    card.className='p-card active';
+    card.style.borderColor=def.hex+'44';
+    card.innerHTML=`
+      <div class="p-name" style="color:${def.hex}">
+        <span class="p-dot" style="background:${def.hex};display:inline-block;margin-right:5px"></span>
+        [${def.id}] ${def.name}
+      </div>
+      <div class="p-desc">${def.desc}</div>
+      <div class="p-stats">
+        <div class="p-stat"><div class="p-stat-val" id="stat-trips-${def.id}">0</div><div class="p-stat-lbl">Trips</div></div>
+        <div class="p-stat"><div class="p-stat-val" id="stat-viols-${def.id}">0</div><div class="p-stat-lbl">Viols</div></div>
+        <div class="p-stat"><div class="p-stat-val" id="stat-exp-${def.id}">0</div><div class="p-stat-lbl">Cells</div></div>
+        <div class="p-stat"><div class="p-stat-val" style="color:${session?'#00d2a0':'#ff4858'}">${session?'ONNX':'RND'}</div><div class="p-stat-lbl">Mode</div></div>
+      </div>
+    `;
+    card.addEventListener('click',()=>{
+      followIdx=i;
+      document.querySelectorAll('.p-card').forEach((c,j)=>{
+        c.classList.toggle('active',j===i);
+      });
+      document.getElementById('fp-name').textContent=def.name;
+    });
+    bar.appendChild(card);
+  });
+
+  document.getElementById('fp-name').textContent=PERSONA_DEFS[0].name;
+}
+
+// ============================================================
+// 観測生成
+// ============================================================
+function getObs(agent){
+  const rays=raycast(agent.x,agent.y,agent.th);
+  const dx=agent.gx-agent.x,dy=agent.gy-agent.y;
+  const wa=Math.atan2(dy,dx),ra=wa-agent.th;
+  const dist=Math.min(Math.sqrt(dx*dx+dy*dy)/(GRID*Math.sqrt(2)),1);
+  const r=Math.max(0,Math.min(GRID-1,Math.floor(agent.x)));
+  const c=Math.max(0,Math.min(GRID-1,Math.floor(agent.y)));
   return new Float32Array([
-    pos[0] / GRID,
-    pos[1] / GRID,
-    visited[agentId].size / (GRID*GRID),
-    meetings[agentId] / 20.0,
-    nearest[0] / GRID,
-    nearest[1] / GRID,
+    ...rays.map(r=>r.type/3),
+    ...rays.map(r=>r.norm),
+    Math.sin(ra),Math.cos(ra),dist,
+    Math.sin(agent.th),Math.cos(agent.th),
+    MAP[r][c]/3,0,0,
   ]);
 }
 
-async function selectAction(agentId) {
-  if (!onnxSession) {
-    // ランダム + 少し探索バイアス
-    const pos = positions[agentId];
-    const obs = getObs(agentId);
-    // 未訪問方向に少し傾ける
-    const weights = [1,1,1,1,0.2];
-    MOVES.forEach(([dx,dy], i) => {
-      const nx = pos[0]+dx, ny = pos[1]+dy;
-      if (nx>=0&&nx<GRID&&ny>=0&&ny<GRID) {
-        const key = `${nx},${ny}`;
-        if (!visited[agentId].has(key)) weights[i] *= 3;
+// ============================================================
+// 行動選択
+// ============================================================
+async function selectAction(agent){
+  if(agent.session){
+    try{
+      const obs=getObs(agent);
+      const dim=obsDims[agent.def.id]||OBS_DIM;
+      const inputName=agent.session.inputNames[0];
+      const outputName=agent.session.outputNames[0];
+      const t=new ort.Tensor('float32',obs,[1,dim]);
+      const out=await agent.session.run({[inputName]:t});
+      const lg=Array.from(out[outputName].data);
+      const mx=Math.max(...lg);
+      const ex=lg.map(v=>Math.exp(v-mx));
+      const sm=ex.reduce((a,b)=>a+b,0);
+      const pr=ex.map(v=>v/sm);
+      let rv=Math.random();
+      for(let i=0;i<pr.length;i++){rv-=pr[i];if(rv<=0)return i;}
+      return 0;
+    }catch(e){return Math.floor(Math.random()*3);}
+  }
+  // ランダム (前進バイアス付き)
+  const rays=raycast(agent.x,agent.y,agent.th);
+  return (rays[2].type===ROAD&&Math.random()<0.55)?0:(Math.random()<0.5?1:2);
+}
+
+// ============================================================
+// トレイル
+// ============================================================
+const trailMats={};
+PERSONA_DEFS.forEach(p=>{
+  trailMats[p.id]=new THREE.MeshBasicMaterial({
+    color:p.color,transparent:true,opacity:0.28,depthWrite:false});
+});
+
+function addTrail(agent,idx){
+  if(!showTrail)return;
+  const m=new THREE.Mesh(
+    new THREE.PlaneGeometry(CELL*.2,CELL*.2),trailMats[agent.def.id]);
+  m.position.set(agent.y*CELL+CELL*.5,agent.x*CELL+CELL*.5,.04);
+  S.add(m);agent.trail.push(m);
+  if(agent.trail.length>50){S.remove(agent.trail.shift());}
+}
+function clearAllTrails(){
+  agents.forEach(a=>{a.trail.forEach(m=>S.remove(m));a.trail=[];});
+}
+
+// ============================================================
+// シミュレーション 1 ステップ
+// ============================================================
+async function stepAll(){
+  if(paused)return;
+  for(let i=0;i<agents.length;i++){
+    const a=agents[i];
+    if(!a.active)continue;
+    const action=await selectAction(a);
+    if(action===1)a.th-=ROT;
+    else if(action===2)a.th+=ROT;
+    a.th=(a.th+Math.PI*2)%(Math.PI*2);
+
+    if(action===0){
+      const nx=Math.max(0.01,Math.min(GRID-0.01,a.x+Math.cos(a.th)*MOVE));
+      const ny=Math.max(0.01,Math.min(GRID-0.01,a.y+Math.sin(a.th)*MOVE));
+      const r=Math.max(0,Math.min(GRID-1,Math.floor(nx)));
+      const c=Math.max(0,Math.min(GRID-1,Math.floor(ny)));
+      if(PASSABLE.has(MAP[r][c])){
+        a.x=nx;a.y=ny;
+        const key=`${r},${c}`;
+        if(!a.visited.has(key)){a.visited.add(key);a.explored++;}
+        addTrail(a,i);
+      }else{
+        a.viols++;
       }
-    });
-    const total = weights.reduce((a,b)=>a+b,0);
-    let r = Math.random()*total;
-    for (let i=0;i<weights.length;i++) {
-      r -= weights[i];
-      if (r<=0) return i;
     }
-    return 0;
-  }
 
-  // ONNX 推論
-  const obs = getObs(agentId);
-  const tensor = new ort.Tensor('float32', obs, [1, 6]);
-  const results = await onnxSession.run({ state: tensor });
-  const logits = results.logits.data;
-  // softmax → sample
-  const exps = Array.from(logits).map(v => Math.exp(v));
-  const sum = exps.reduce((a,b)=>a+b,0);
-  const probs = exps.map(v => v/sum);
-  let r = Math.random();
-  for (let i=0;i<probs.length;i++) {
-    r -= probs[i];
-    if (r<=0) return i;
-  }
-  return 0;
-}
-
-async function stepSim() {
-  if (paused) return;
-
-  const action = await selectAction(0);
-  const [dx, dy] = MOVES[action];
-  const pos = positions[0];
-  const newX = Math.max(0, Math.min(GRID-1, pos[0]+dx));
-  const newY = Math.max(0, Math.min(GRID-1, pos[1]+dy));
-  positions[0] = [newX, newY];
-
-  // Other agents random
-  for (let i=1; i<N_AGENTS; i++) {
-    const ra = Math.floor(Math.random()*5);
-    const [rdx,rdy] = MOVES[ra];
-    positions[i] = [
-      Math.max(0,Math.min(GRID-1, positions[i][0]+rdx)),
-      Math.max(0,Math.min(GRID-1, positions[i][1]+rdy)),
-    ];
-  }
-
-  stepCount++;
-
-  // Reward
-  let reward = 0;
-  const cellKey = `${newX},${newY}`;
-  if (!visited[0].has(cellKey)) {
-    reward += 2;
-    visited[0].add(cellKey);
-    visitedMarkers[newY][newX].material.opacity = 0.18;
-    addLog(`ALPHA visited (${newX},${newY})`, "highlight");
-  }
-
-  // Meetings
-  let meetCount = 0;
-  for (let i=1;i<N_AGENTS;i++) {
-    const dist = Math.sqrt(
-      (positions[i][0]-newX)**2 + (positions[i][1]-newY)**2
-    );
-    if (dist < 1.5) {
-      reward += 1;
-      meetCount++;
-      meetings[0]++;
-      addLog(`ALPHA met ${AGENT_NAMES[i]}!`, "meet");
+    a.steps++;
+    const dist=Math.sqrt((a.x-a.gx)**2+(a.y-a.gy)**2);
+    if(dist<0.8){
+      a.trips++;
+      const g=randB([Math.floor(a.x),Math.floor(a.y)]);
+      a.gx=g[0]+0.5;a.gy=g[1]+0.5;
     }
-  }
 
-  totalReward += reward;
-
-  // Update HUD
-  document.getElementById('stat-step').textContent = stepCount;
-  document.getElementById('stat-visited').textContent = visited[0].size;
-  document.getElementById('stat-meetings').textContent = meetings[0];
-  document.getElementById('stat-reward').textContent = totalReward.toFixed(1);
-
-  if (stepCount >= MAX_STEPS) {
-    addLog(`Episode done. Reward: ${totalReward.toFixed(1)}`, "highlight");
-    initSim();
+    // カード更新
+    document.getElementById(`stat-trips-${a.def.id}`).textContent=a.trips;
+    document.getElementById(`stat-viols-${a.def.id}`).textContent=a.viols;
+    document.getElementById(`stat-exp-${a.def.id}`).textContent=a.explored;
   }
 }
 
 // ============================================================
-// Three.js Agent Updates
+// FP ビュー描画
 // ============================================================
-const targetPositions = Array.from({length: N_AGENTS}, () => new THREE.Vector3());
-let lastStepTime = 0;
+const fpCanvas=document.getElementById('fp-canvas');
+const fpCtx=fpCanvas.getContext('2d');
+const CT_COLORS={
+  [OTHER]:'#0c1e4a',[ROAD]:'#b0b4ac',[BUILDING]:'#c42020',[TREE]:'#236826'
+};
 
-function updateAgentMeshes(delta) {
-  for (let i=0; i<N_AGENTS; i++) {
-    const tx = (positions[i][0]+0.5)*CELL;
-    const ty = (positions[i][1]+0.5)*CELL;
-    targetPositions[i].set(tx, ty, 0);
-
-    const mesh = agentMeshes[i];
-    mesh.position.x += (tx - mesh.position.x) * Math.min(1, delta * 8);
-    mesh.position.y += (ty - mesh.position.y) * Math.min(1, delta * 8);
-
-    // Bob animation
-    mesh.position.z = CELL*0.45/2 + 0.02 + Math.sin(Date.now()*0.003 + i*1.2) * 0.05;
-
-    // Rotate toward movement direction
-    const dx = tx - mesh.position.x;
-    const dy = ty - mesh.position.y;
-    if (Math.abs(dx)+Math.abs(dy) > 0.01) {
-      const angle = Math.atan2(dx, dy);
-      mesh.rotation.z += (angle - mesh.rotation.z) * 0.1;
-    }
-  }
-}
-
-// Camera animation
-let cameraAngle = 0;
-function updateCamera(delta) {
-  const cx = GRID*CELL*0.5;
-  const cy = GRID*CELL*0.5;
-
-  if (cameraMode === 0) {
-    // Overhead
-    camera.position.set(cx, cy - GRID*CELL*0.3, GRID*CELL*1.1);
-    camera.lookAt(cx, cy, 0);
-  } else if (cameraMode === 1) {
-    // Follow main agent
-    const ap = agentMeshes[0].position;
-    camera.position.set(ap.x - 5, ap.y - 10, 12);
-    camera.lookAt(ap.x, ap.y, 0);
-  } else {
-    // Orbit
-    cameraAngle += delta * 0.12;
-    const r = GRID*CELL*0.85;
-    camera.position.set(
-      cx + Math.cos(cameraAngle)*r,
-      cy + Math.sin(cameraAngle)*r,
-      GRID*CELL*0.7
-    );
-    camera.lookAt(cx, cy, 0);
-  }
+function drawFP(){
+  if(!showFP)return;
+  const a=agents[followIdx];
+  if(!a)return;
+  const rays=raycast(a.x,a.y,a.th);
+  const w=fpCanvas.width,h=fpCanvas.height;
+  fpCtx.fillStyle='#030507';fpCtx.fillRect(0,0,w,h);
+  const sky=fpCtx.createLinearGradient(0,0,0,h*.45);
+  sky.addColorStop(0,'#060c14');sky.addColorStop(1,'#0c1e2a');
+  fpCtx.fillStyle=sky;fpCtx.fillRect(0,0,w,h*.45);
+  const grd=fpCtx.createLinearGradient(0,h*.45,0,h);
+  grd.addColorStop(0,'#1a2820');grd.addColorStop(1,'#080e0c');
+  fpCtx.fillStyle=grd;fpCtx.fillRect(0,h*.45,w,h*.55);
+  const cw=w/rays.length;
+  rays.forEach((ray,i)=>{
+    const norm=1-ray.norm;
+    const colH=Math.min(norm*h*1.8,h);
+    const y0=(h-colH)*.5;
+    const base=parseInt(CT_COLORS[ray.type].slice(1),16);
+    const br=Math.floor(0.3+norm*.7);
+    const r=Math.min(255,((base>>16)&0xff)*br);
+    const g=Math.min(255,((base>>8)&0xff)*br);
+    const b=Math.min(255,(base&0xff)*br);
+    fpCtx.fillStyle=`rgb(${r},${g},${b})`;
+    fpCtx.fillRect(i*cw,y0,cw+1,colH);
+  });
+  // 照準
+  const col=a.def.hex;
+  fpCtx.strokeStyle=col+'99';fpCtx.lineWidth=1;
+  fpCtx.beginPath();
+  fpCtx.moveTo(w*.5-8,h*.5);fpCtx.lineTo(w*.5+8,h*.5);
+  fpCtx.moveTo(w*.5,h*.5-8);fpCtx.lineTo(w*.5,h*.5+8);
+  fpCtx.stroke();
+  // ゴール方向
+  const dx=a.gx-a.x,dy=a.gy-a.y;
+  const ga=Math.atan2(dy,dx)-a.th;
+  const gl=22;
+  fpCtx.strokeStyle=col;fpCtx.lineWidth=2;
+  fpCtx.beginPath();
+  fpCtx.moveTo(w*.5,h*.5);
+  fpCtx.lineTo(w*.5+Math.sin(ga)*gl,h*.5-Math.cos(ga)*gl);
+  fpCtx.stroke();
 }
 
 // ============================================================
-// Render Loop
+// Three.js ループ
 // ============================================================
-let lastTime = 0;
-let stepTimer = 0;
-let speedMultiplier = 1;
+let lastT=0,camAngle=0;
 
-function animate(time) {
+function updateMeshes(dt){
+  agents.forEach((a,i)=>{
+    const tx=a.y*CELL+CELL*.5,ty=a.x*CELL+CELL*.5;
+    const m=agentMeshes[i];
+    m.position.x+=(tx-m.position.x)*Math.min(1,dt*14);
+    m.position.y+=(ty-m.position.y)*Math.min(1,dt*14);
+    m.position.z=CELL*.26+Math.sin(Date.now()*.003+i*1.3)*.05;
+    const tar=-a.th+Math.PI*.5;
+    let dr=tar-m.rotation.z;
+    while(dr>Math.PI)dr-=Math.PI*2;while(dr<-Math.PI)dr+=Math.PI*2;
+    m.rotation.z+=dr*Math.min(1,dt*14);
+  });
+}
+
+function updateCamera(dt){
+  if(camMode===0){
+    mainCam.position.set(W*.5,-W*.15,W*1.25);
+    mainCam.lookAt(W*.5,W*.5,0);
+  }else{
+    camAngle+=dt*.06;
+    const rad=W*.9;
+    mainCam.position.set(W*.5+Math.cos(camAngle)*rad,
+                          W*.5+Math.sin(camAngle)*rad,W*.8);
+    mainCam.lookAt(W*.5,W*.5,0);
+  }
+}
+
+function animate(t){
   requestAnimationFrame(animate);
-  const delta = Math.min((time - lastTime) / 1000, 0.1);
-  lastTime = time;
-
-  updateAgentMeshes(delta);
-  updateCamera(delta);
-  renderer.render(scene3, camera);
+  const dt=Math.min((t-lastT)/1000,.1);lastT=t;
+  updateMeshes(dt);updateCamera(dt);
+  drawFP();
+  fpCanvas.width=fpCanvas.clientWidth*devicePixelRatio;
+  fpCanvas.height=fpCanvas.clientHeight*devicePixelRatio;
+  renderer.render(S,mainCam);
 }
 requestAnimationFrame(animate);
 
-// Step timer
-setInterval(async () => {
-  for (let s=0; s<speedMultiplier; s++) {
-    await stepSim();
-  }
-}, TICK_MS);
+setInterval(async()=>{
+  for(let s=0;s<speedMul;s++) await stepAll();
+},TICK);
 
 // ============================================================
-// Log
+// コントロール
 // ============================================================
-function addLog(msg, cls) {
-  logCount++;
-  if (logCount > 80) return;
-  const div = document.getElementById('log-entries');
-  const entry = document.createElement('div');
-  entry.className = 'entry' + (cls ? ' ' + cls : '');
-  entry.textContent = `> ${msg}`;
-  div.insertBefore(entry, div.firstChild);
-  while (div.children.length > 8) div.removeChild(div.lastChild);
-}
-
-// ============================================================
-// Controls
-// ============================================================
-document.getElementById('btn-pause').addEventListener('click', function() {
-  paused = !paused;
-  this.textContent = paused ? 'Resume' : 'Pause';
-  this.classList.toggle('active', paused);
-  document.getElementById('dot-sim').classList.toggle('on', !paused);
+document.getElementById('b-pause').addEventListener('click',function(){
+  paused=!paused;this.textContent=paused?'Resume':'Pause';
+  this.classList.toggle('on',!paused);
 });
-
-document.getElementById('btn-reset').addEventListener('click', () => {
-  logCount = 0;
-  document.getElementById('log-entries').innerHTML = '';
-  initSim();
+document.getElementById('b-reset').addEventListener('click',()=>{
+  clearAllTrails();initAll();
 });
-
-document.getElementById('btn-speed').addEventListener('click', function() {
-  const speeds = [1,2,4];
-  const labels = ['Speed ×1','Speed ×2','Speed ×4'];
-  speedMultiplier = speeds[(speeds.indexOf(speedMultiplier)+1) % speeds.length];
-  this.textContent = labels[speeds.indexOf(speedMultiplier)];
+document.getElementById('b-speed').addEventListener('click',function(){
+  const ss=[1,2,4],ll=['×1','×2','×4'];
+  speedMul=ss[(ss.indexOf(speedMul)+1)%3];
+  this.textContent=ll[ss.indexOf(speedMul)];
 });
-
-document.getElementById('btn-camera').addEventListener('click', function() {
-  const modes = ['Overhead','Follow','Orbit'];
-  cameraMode = (cameraMode+1) % 3;
-  this.textContent = modes[cameraMode];
+document.getElementById('b-cam').addEventListener('click',function(){
+  camMode=(camMode+1)%2;
+  this.textContent=camMode===0?'俯瞰':'Orbit';
+  this.classList.toggle('on',camMode===0);
 });
-
-// ============================================================
-// ONNX Loading
-// ============================================================
-document.getElementById('onnx-file-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const buffer = await file.arrayBuffer();
-    onnxSession = await ort.InferenceSession.create(buffer);
-    document.getElementById('onnx-overlay').style.display = 'none';
-    document.getElementById('dot-onnx').classList.add('on', 'red');
-    document.getElementById('label-onnx').textContent = 'ONNX: Loaded ✓';
-    document.getElementById('label-mode').textContent = 'ONNX Policy Mode';
-    addLog('ONNX policy loaded!', 'highlight');
-    initSim();
-  } catch(err) {
-    alert('ONNX読み込みエラー: ' + err.message);
-  }
+document.getElementById('b-trail').addEventListener('click',function(){
+  showTrail=!showTrail;
+  this.textContent=showTrail?'Trail':'No Trail';
+  this.classList.toggle('on',showTrail);
+  if(!showTrail)clearAllTrails();
 });
-
-document.getElementById('skip-btn').addEventListener('click', () => {
-  document.getElementById('onnx-overlay').style.display = 'none';
-  addLog('Random mode started', 'highlight');
-  initSim();
+document.getElementById('b-fp').addEventListener('click',function(){
+  showFP=!showFP;
+  this.textContent=showFP?'FP ON':'FP View';
+  this.classList.toggle('on',showFP);
+  document.getElementById('fp-wrap').style.display=showFP?'block':'none';
 });
-
-// Init
-initSim();
 </script>
 </body>
 </html>
